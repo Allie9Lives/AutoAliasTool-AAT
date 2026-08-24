@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gmail Auto-Alias Tool (AAT)
 // @namespace    http://tampermonkey.net/
-// @version      v1.0.0
+// @version      v1.0.1
 // @description  Fills Gmail aliases on websites and displays a single large badge in Gmail showing which alias an email was sent to.
 // @author       Allie9Lives
 // @match        *://*/*
