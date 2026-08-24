@@ -2,7 +2,7 @@
 // @name         Gmail Auto-Alias Tool (AAT)
 // @namespace    http://tampermonkey.net/
 // @version      v1.0.1
-// @description  Fills Gmail aliases on websites and displays a single large badge in Gmail showing which alias an email was sent to.
+// @description  Fills Gmail aliases on websites and displays a badge with favicon and expandable full alias details in Gmail.
 // @author       Allie9Lives
 // @match        *://*/*
 // @grant        GM_getValue
@@ -70,47 +70,128 @@
     if (window.location.hostname === 'mail.google.com') {
 
         function updateGmailInlineBadge() {
-            // Target recipient containers directly (works for existing and incoming messages)
-            const recipientContainers = document.querySelectorAll('.hb, .gE');
+            const messages = document.querySelectorAll('.gs');
 
-            recipientContainers.forEach(container => {
-                const textContent = container.innerText || container.textContent || '';
-                const match = textContent.match(/\+([a-zA-Z0-9._-]+)/i);
+            messages.forEach(msg => {
+                const recipientContainer = msg.querySelector('.hb, .gE');
+                if (!recipientContainer) return;
+
+                const headerText = recipientContainer.innerText || recipientContainer.textContent || '';
+                const bodyText = msg.innerText || msg.textContent || '';
+
+                // Prioritize exact full email match with alias (+) tag
+                const match = headerText.match(/([a-zA-Z0-9._-]+)\+([a-zA-Z0-9._-]+)@([a-zA-Z0-9._-]+\.[a-zA-Z]{2,})/i) ||
+                              bodyText.match(/([a-zA-Z0-9._-]+)\+([a-zA-Z0-9._-]+)@([a-zA-Z0-9._-]+\.[a-zA-Z]{2,})/i);
 
                 if (match) {
-                    const aliasTag = match[1];
-                    let pill = container.querySelector('.gmail-alias-inline-pill');
+                    const fullEmail = match[0];
+                    const aliasTag = match[2];
 
-                    if (!pill) {
-                        pill = document.createElement('div');
-                        pill.className = 'gmail-alias-inline-pill';
+                    let pillContainer = recipientContainer.querySelector('.gmail-alias-inline-container');
 
-                        pill.style.cssText = `
-                            background: linear-gradient(135deg, #2563eb, #1d4ed8);
-                            color: #ffffff;
-                            font-size: 14px;
-                            font-weight: 700;
-                            padding: 5px 12px;
-                            border-radius: 8px;
-                            margin-top: 6px;
-                            margin-bottom: 4px;
-                            display: inline-block;
-                            font-family: 'Google Sans', Roboto, sans-serif;
-                            box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4);
-                            letter-spacing: 0.3px;
-                            border: 1px solid #60a5fa;
-                        `;
-
-                        container.appendChild(pill);
+                    // GUARD: Skip re-rendering if this container already rendered this exact full email
+                    if (pillContainer && pillContainer.dataset.renderedEmail === fullEmail) {
+                        return;
                     }
 
-                    // Update inner text directly in case the container re-renders with a new message
-                    pill.innerText = `🏷️ Sent to Alias: ${aliasTag}`;
+                    let cleanDomain = aliasTag.replace(/[0-9]+$/, '').toLowerCase();
+                    if (cleanDomain === 'chatgpt') cleanDomain = 'openai.com';
+                    else if (!cleanDomain.includes('.')) cleanDomain += '.com';
+
+                    const faviconUrl = `https://www.google.com/s2/favicons?domain=${cleanDomain}&sz=32`;
+
+                    if (!pillContainer) {
+                        pillContainer = document.createElement('div');
+                        pillContainer.className = 'gmail-alias-inline-container';
+
+                        pillContainer.style.cssText = `
+                            margin-top: 6px !important;
+                            margin-bottom: 4px !important;
+                            display: block !important;
+                            font-family: 'Google Sans', Roboto, sans-serif !important;
+                        `;
+
+                        recipientContainer.appendChild(pillContainer);
+                    }
+
+                    // Mark current full email on dataset to block observer loop
+                    pillContainer.dataset.renderedEmail = fullEmail;
+                    pillContainer.replaceChildren();
+
+                    // Main Badge Pill
+                    const pill = document.createElement('div');
+                    pill.style.cssText = `
+                        background: linear-gradient(135deg, #1e293b, #0f172a) !important;
+                        color: #ffffff !important;
+                        font-size: 13px !important;
+                        font-weight: 600 !important;
+                        padding: 4px 10px !important;
+                        border-radius: 6px !important;
+                        display: inline-flex !important;
+                        align-items: center !important;
+                        gap: 8px !important;
+                        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25) !important;
+                        border: 1px solid #3b82f6 !important;
+                        width: fit-content !important;
+                        line-height: 1.2 !important;
+                    `;
+
+                    const textSpan = document.createElement('span');
+                    textSpan.style.cssText = 'white-space: nowrap; display: inline-block;';
+                    textSpan.textContent = `Sent to Alias: ${aliasTag}`;
+
+                    const img = document.createElement('img');
+                    img.src = faviconUrl;
+                    img.style.cssText = 'width: 14px; height: 14px; border-radius: 2px; display: block; flex-shrink: 0;';
+                    img.onerror = function() {
+                        this.remove();
+                    };
+
+                    pill.appendChild(textSpan);
+                    pill.appendChild(img);
+
+                    // Collapsible Details Element
+                    const details = document.createElement('details');
+                    details.style.cssText = `
+                        margin-top: 4px !important;
+                        font-size: 11px !important;
+                        color: #94a3b8 !important;
+                        cursor: pointer !important;
+                        user-select: none !important;
+                    `;
+
+                    const summary = document.createElement('summary');
+                    summary.textContent = 'Full Email Address';
+                    summary.style.cssText = `
+                        outline: none !important;
+                        opacity: 0.8 !important;
+                        transition: opacity 0.2s !important;
+                    `;
+                    summary.onmouseover = () => summary.style.opacity = '1';
+                    summary.onmouseout = () => summary.style.opacity = '0.8';
+
+                    const fullEmailContent = document.createElement('div');
+                    fullEmailContent.textContent = fullEmail;
+                    fullEmailContent.style.cssText = `
+                        margin-top: 3px !important;
+                        padding: 3px 6px !important;
+                        background: #0f172a !important;
+                        border-radius: 4px !important;
+                        border: 1px solid #334155 !important;
+                        color: #38bdf8 !important;
+                        font-family: monospace !important;
+                        display: inline-block !important;
+                    `;
+
+                    details.appendChild(summary);
+                    details.appendChild(fullEmailContent);
+
+                    pillContainer.appendChild(pill);
+                    pillContainer.appendChild(details);
                 }
             });
         }
 
-        // Debounce setup to handle fast real-time DOM updates efficiently
         let timeout = null;
         const observer = new MutationObserver(() => {
             if (timeout) clearTimeout(timeout);
